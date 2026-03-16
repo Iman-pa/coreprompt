@@ -1,0 +1,238 @@
+/* content.css — Styles for the injected Coreprompt button and in-page modal */
+
+/* ── Floating button ── */
+#coreprompt-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #18181b;
+  color: #fafafa;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.2);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  user-select: none;
+}
+
+#coreprompt-btn:hover {
+  background: #27272a;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+  transform: translateY(-1px);
+}
+
+#coreprompt-btn:active {
+  transform: translateY(0);
+}
+
+#coreprompt-btn svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* ── Modal overlay ── */
+#coreprompt-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+#coreprompt-modal-overlay.coreprompt-visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* ── Modal box ── */
+#coreprompt-modal {
+  background: #18181b;
+  color: #fafafa;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  width: min(680px, 94vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  transform: translateY(8px);
+  transition: transform 0.2s;
+}
+
+#coreprompt-modal-overlay.coreprompt-visible #coreprompt-modal {
+  transform: translateY(0);
+}
+
+/* ── Modal header ── */
+#coreprompt-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#coreprompt-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fafafa;
+}
+
+#coreprompt-modal-close {
+  background: none;
+  border: none;
+  color: #71717a;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+#coreprompt-modal-close:hover {
+  color: #fafafa;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Modal body ── */
+#coreprompt-modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* ── Output textarea ── */
+#coreprompt-output {
+  flex: 1;
+  width: 100%;
+  min-height: 320px;
+  max-height: 50vh;
+  background: #09090b;
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  resize: vertical;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+#coreprompt-output:focus {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Loading state ── */
+#coreprompt-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 0;
+  justify-content: center;
+  color: #a1a1aa;
+  font-size: 14px;
+}
+
+.coreprompt-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #a1a1aa;
+  border-radius: 50%;
+  animation: coreprompt-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes coreprompt-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Error state ── */
+#coreprompt-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  padding: 14px 16px;
+  color: #fca5a5;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* ── Modal footer ── */
+#coreprompt-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 12px;
+}
+
+#coreprompt-char-count {
+  font-size: 12px;
+  color: #52525b;
+}
+
+/* ── Copy button ── */
+#coreprompt-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #27272a;
+  color: #fafafa;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+#coreprompt-copy-btn:hover:not(:disabled) {
+  background: #3f3f46;
+}
+
+#coreprompt-copy-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#coreprompt-copy-btn.coreprompt-copied {
+  background: #166534;
+  border-color: rgba(74, 222, 128, 0.3);
+  color: #86efac;
+}
+
+/* ── Utility ── */
+.coreprompt-hidden {
+  display: none !important;
+}
