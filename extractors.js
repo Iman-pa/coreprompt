@@ -8,13 +8,18 @@ const PLATFORM_EXTRACTORS = {
     matches: (host) => host.includes('chatgpt.com') || host.includes('chat.openai.com'),
     extract() {
       const messages = [];
-      // ChatGPT uses data-message-author-role attribute on message containers
-      const turns = document.querySelectorAll('[data-message-author-role]');
+      // data-message-author-role is the stable per-message attribute in ChatGPT's current DOM
+      const turns = document.querySelectorAll('div[data-message-author-role]');
       turns.forEach((turn) => {
         const role = turn.getAttribute('data-message-author-role');
-        // Content lives in a .markdown div or directly as whitespace-pre-wrap text
-        const contentEl = turn.querySelector('.markdown, .whitespace-pre-wrap, [class*="prose"]');
-        const content = (contentEl || turn).innerText.trim();
+        if (role !== 'user' && role !== 'assistant') return;
+        // Prefer the markdown/prose container; fall back to the turn element itself
+        const contentEl =
+          turn.querySelector('.markdown') ||
+          turn.querySelector('[class*="prose"]') ||
+          turn.querySelector('.whitespace-pre-wrap') ||
+          turn;
+        const content = contentEl.innerText.trim();
         if (content) {
           messages.push({ role: role === 'user' ? 'User' : 'Assistant', content });
         }
@@ -27,15 +32,33 @@ const PLATFORM_EXTRACTORS = {
     matches: (host) => host.includes('claude.ai'),
     extract() {
       const messages = [];
-      // Claude uses data-testid on turn containers
-      const turns = document.querySelectorAll('[data-testid="human-turn"], [data-testid="ai-turn"]');
-      turns.forEach((turn) => {
-        const isHuman = turn.getAttribute('data-testid') === 'human-turn';
-        const content = turn.innerText.trim();
-        if (content) {
-          messages.push({ role: isHuman ? 'User' : 'Assistant', content });
+      // Current Claude DOM (2025): user turns use data-testid="user-message",
+      // assistant turns use the stable .font-claude-response class.
+      // We collect both sets, tag each node with its role, then sort by DOM order.
+      const tagged = [];
+
+      document.querySelectorAll('[data-testid="user-message"]').forEach((el) => {
+        tagged.push({ el, role: 'User' });
+      });
+
+      // Exclude artifact/canvas panels which share the class
+      document.querySelectorAll('.font-claude-response').forEach((el) => {
+        if (!el.closest('#markdown-artifact')) {
+          tagged.push({ el, role: 'Assistant' });
         }
       });
+
+      // Sort by DOM position so messages appear in conversation order
+      tagged.sort((a, b) => {
+        const pos = a.el.compareDocumentPosition(b.el);
+        return pos & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      });
+
+      tagged.forEach(({ el, role }) => {
+        const content = el.innerText.trim();
+        if (content) messages.push({ role, content });
+      });
+
       return messages;
     },
   },
