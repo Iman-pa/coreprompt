@@ -6,15 +6,26 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 
 const SYSTEM_PROMPT = `You are an expert at analyzing AI conversations and distilling their essence into reusable system prompts.
 
-Given the conversation below, generate a structured system prompt that a user can paste into a new AI chat session to immediately resume with full context. The system prompt should capture:
+Given the conversation below, generate a structured system prompt that a user can paste into a new AI chat session to immediately resume with full context.
 
-1. **Main Topic & Context** — What this conversation is fundamentally about.
-2. **Key Decisions & Conclusions** — What was decided, chosen, or resolved, and why.
-3. **User's Thinking Style & Preferences** — How the user approaches problems, communicates, and what they seem to value.
-4. **Established Facts & Constraints** — Any important information, rules, or constraints that were set.
-5. **Open Questions & Next Steps** — Unresolved issues, pending decisions, or the logical next things to tackle.
+RULES:
+- Output the system prompt directly — no preamble, no explanation, no meta-commentary.
+- Every sentence must be complete. Never truncate a point mid-thought.
+- Be concise — 1 to 3 sentences per section is enough.
+- Use clear markdown headers for each section.
 
-Output the system prompt directly — no preamble, no explanation. Start with "You are continuing a conversation with a user. Here is the full context:" and then provide the structured content. Use clear headers. Be thorough but concise.`;
+The system prompt must contain exactly these seven sections:
+
+1. **User Profile** — Who the user appears to be: their role, domain, experience level, and goals as inferred from the conversation.
+2. **Tone & Style** — How the user communicates: formal or casual, preferred response length, use of bullet points vs prose, technical depth expected, and any stylistic patterns observed.
+3. **Main Topic & Context** — What this conversation is fundamentally about and the situation that prompted it.
+4. **Key Decisions & Conclusions** — What was decided, chosen, or resolved, and the reasoning behind each decision.
+5. **Established Facts & Constraints** — All important information, rules, requirements, or constraints that were set and must be respected.
+6. **Open Questions & Next Steps** — Every unresolved issue, pending decision, and the logical next things to tackle, in priority order.
+7. **Behavioral Directive** — A direct instruction to the new AI instance: its exact role in this conversation, what it should and should not do, and how to pick up exactly where this conversation left off.
+
+Start the output with: "You are continuing a conversation with a user. Here is the full context:"`;
+
 
 async function logAvailableModels() {
   const { geminiApiKey } = await chrome.storage.sync.get('geminiApiKey');
@@ -50,21 +61,52 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
+// Compress the conversation to fit within ~2000 input tokens (~8000 chars).
+// Strategy: keep the first 2 turns (establishes topic) and the last 10 turns
+// (captures recent context and next steps), truncate each message to 300 chars,
+// then hard-cap the total to 6000 chars as a final safety net.
+function compressConversation(conversation) {
+  const MAX_MSG_CHARS = 300;
+  const CHAR_BUDGET = 6000;
+
+  let head, tail, omittedCount;
+  if (conversation.length <= 12) {
+    head = conversation;
+    tail = [];
+    omittedCount = 0;
+  } else {
+    head = conversation.slice(0, 2);
+    tail = conversation.slice(-10);
+    omittedCount = conversation.length - 12;
+  }
+
+  const truncate = (msg) => ({
+    ...msg,
+    content: msg.content.length > MAX_MSG_CHARS
+      ? msg.content.slice(0, MAX_MSG_CHARS) + '…'
+      : msg.content,
+  });
+
+  const fmt = (msg) => `${msg.role}: ${msg.content}`;
+
+  const parts = [];
+  head.forEach((msg) => parts.push(fmt(truncate(msg))));
+  if (omittedCount > 0) {
+    parts.push(`[${omittedCount} turn(s) omitted]`);
+  }
+  tail.forEach((msg) => parts.push(fmt(truncate(msg))));
+
+  const text = parts.join('\n\n---\n\n');
+  return text.length > CHAR_BUDGET ? text.slice(0, CHAR_BUDGET) + '\n\n[Truncated]' : text;
+}
+
 async function handleGeneratePrompt(conversation) {
   const { geminiApiKey } = await chrome.storage.sync.get('geminiApiKey');
   if (!geminiApiKey) {
     throw new Error('No Gemini API key found. Please set it in the Coreprompt extension settings.');
   }
 
-  // Limit input to the last 20 turns and cap each message at 500 chars
-  // to stay within the free-tier input token budget.
-  const trimmed = conversation.slice(-20).map((msg) => ({
-    ...msg,
-    content: msg.content.length > 500 ? msg.content.slice(0, 500) + '…' : msg.content,
-  }));
-  const conversationText = trimmed
-    .map((msg) => `${msg.role}: ${msg.content}`)
-    .join('\n\n---\n\n');
+  const conversationText = compressConversation(conversation);
 
   const requestBody = {
     contents: [
@@ -79,7 +121,7 @@ async function handleGeneratePrompt(conversation) {
     ],
     generationConfig: {
       temperature: 0.4,
-      maxOutputTokens: 600,  // keep output tight — free tier has low token quota
+      maxOutputTokens: 1024,
     },
   };
 
