@@ -1,7 +1,7 @@
 // background.js — Service worker
 // Handles Gemini API calls from content scripts.
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const SYSTEM_PROMPT = `You are an expert at analyzing AI conversations and distilling their essence into reusable system prompts.
@@ -15,6 +15,31 @@ Given the conversation below, generate a structured system prompt that a user ca
 5. **Open Questions & Next Steps** — Unresolved issues, pending decisions, or the logical next things to tackle.
 
 Output the system prompt directly — no preamble, no explanation. Start with "You are continuing a conversation with a user. Here is the full context:" and then provide the structured content. Use clear headers. Be thorough but concise.`;
+
+async function logAvailableModels() {
+  const { geminiApiKey } = await chrome.storage.sync.get('geminiApiKey');
+  if (!geminiApiKey) {
+    console.log('[Coreprompt] logAvailableModels: no API key set, skipping.');
+    return;
+  }
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('[Coreprompt] ListModels error:', data?.error?.message || res.status);
+      return;
+    }
+    const names = (data.models || []).map((m) => m.name);
+    console.log(`[Coreprompt] Available models (${names.length}):`);
+    names.forEach((n) => console.log(' ', n));
+  } catch (err) {
+    console.error('[Coreprompt] ListModels fetch failed:', err.message);
+  }
+}
+
+logAvailableModels();
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'GENERATE_PROMPT') {
@@ -31,7 +56,13 @@ async function handleGeneratePrompt(conversation) {
     throw new Error('No Gemini API key found. Please set it in the Coreprompt extension settings.');
   }
 
-  const conversationText = conversation
+  // Limit input to the last 20 turns and cap each message at 500 chars
+  // to stay within the free-tier input token budget.
+  const trimmed = conversation.slice(-20).map((msg) => ({
+    ...msg,
+    content: msg.content.length > 500 ? msg.content.slice(0, 500) + '…' : msg.content,
+  }));
+  const conversationText = trimmed
     .map((msg) => `${msg.role}: ${msg.content}`)
     .join('\n\n---\n\n');
 
@@ -48,7 +79,7 @@ async function handleGeneratePrompt(conversation) {
     ],
     generationConfig: {
       temperature: 0.4,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 600,  // keep output tight — free tier has low token quota
     },
   };
 

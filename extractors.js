@@ -2,13 +2,34 @@
 // Per-platform conversation extractors.
 // Each extractor returns an array of { role: 'User' | 'Assistant', content: string }.
 // Selectors are based on current DOM structures and may need updating as platforms change.
+//
+// DEBUG MODE: open the browser console on a supported page and run:
+//   window.__corepromptDebug = true
+// Then click the Coreprompt button. Detailed selector results will be logged.
+
+const DEBUG = () => true; // TEMP: hardcoded for debugging — revert before shipping
+
+function dbg(...args) {
+  if (DEBUG()) console.log('[Coreprompt]', ...args);
+}
+
+function probeSelector(label, selector) {
+  if (!DEBUG()) return;
+  const els = document.querySelectorAll(selector);
+  console.log(`[Coreprompt]   ${label} ("${selector}") → ${els.length} element(s)`);
+  els.forEach((el, i) => {
+    console.log(`[Coreprompt]     [${i}]`, el, `| text: "${el.innerText.trim().slice(0, 80)}"`);
+  });
+}
 
 const PLATFORM_EXTRACTORS = {
   chatgpt: {
     matches: (host) => host.includes('chatgpt.com') || host.includes('chat.openai.com'),
     extract() {
       const messages = [];
-      // data-message-author-role is the stable per-message attribute in ChatGPT's current DOM
+      dbg('--- ChatGPT extractor ---');
+      probeSelector('data-message-author-role', 'div[data-message-author-role]');
+
       const turns = document.querySelectorAll('div[data-message-author-role]');
       turns.forEach((turn) => {
         const role = turn.getAttribute('data-message-author-role');
@@ -20,10 +41,13 @@ const PLATFORM_EXTRACTORS = {
           turn.querySelector('.whitespace-pre-wrap') ||
           turn;
         const content = contentEl.innerText.trim();
+        dbg(`  turn role="${role}" content="${content.slice(0, 80)}"`);
         if (content) {
           messages.push({ role: role === 'user' ? 'User' : 'Assistant', content });
         }
       });
+
+      dbg(`extracted ${messages.length} message(s)`);
       return messages;
     },
   },
@@ -32,9 +56,16 @@ const PLATFORM_EXTRACTORS = {
     matches: (host) => host.includes('claude.ai'),
     extract() {
       const messages = [];
-      // Current Claude DOM (2025): user turns use data-testid="user-message",
-      // assistant turns use the stable .font-claude-response class.
-      // We collect both sets, tag each node with its role, then sort by DOM order.
+      console.log('[Coreprompt] page HTML sample:', document.body.innerHTML.slice(0, 1000));
+      dbg('--- Claude extractor ---');
+      probeSelector('user-message (data-testid)', '[data-testid="user-message"]');
+      probeSelector('font-claude-response (all)', '.font-claude-response');
+      probeSelector('font-claude-response inside #markdown-artifact', '#markdown-artifact .font-claude-response');
+      // Extra probes to help spot the real selectors if ours are wrong
+      probeSelector('PROBE: data-testid="human-turn" (old)', '[data-testid="human-turn"]');
+      probeSelector('PROBE: data-testid="ai-turn" (old)', '[data-testid="ai-turn"]');
+      probeSelector('PROBE: any [data-testid] on page', '[data-testid]');
+
       const tagged = [];
 
       document.querySelectorAll('[data-testid="user-message"]').forEach((el) => {
@@ -48,6 +79,8 @@ const PLATFORM_EXTRACTORS = {
         }
       });
 
+      dbg(`before sort: ${tagged.length} tagged element(s)`);
+
       // Sort by DOM position so messages appear in conversation order
       tagged.sort((a, b) => {
         const pos = a.el.compareDocumentPosition(b.el);
@@ -56,9 +89,11 @@ const PLATFORM_EXTRACTORS = {
 
       tagged.forEach(({ el, role }) => {
         const content = el.innerText.trim();
+        dbg(`  role="${role}" content="${content.slice(0, 80)}"`);
         if (content) messages.push({ role, content });
       });
 
+      dbg(`extracted ${messages.length} message(s)`);
       return messages;
     },
   },
