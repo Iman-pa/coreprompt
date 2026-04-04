@@ -61,43 +61,83 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-// Compress the conversation to fit within ~2000 input tokens (~8000 chars).
-// Strategy: keep the first 2 turns (establishes topic) and the last 10 turns
-// (captures recent context and next steps), truncate each message to 300 chars,
-// then hard-cap the total to 6000 chars as a final safety net.
+const SIGNAL_PHRASES = [
+  "here's the", "bottom line", "go with", "the right move",
+  "my recommendation", "in short",
+];
+
+// Compress a group of consecutive messages into one sentence.
+// Groups consecutive messages by role; takes the first sentence of
+// the first message as a representative summary.
+function compressGroup(msgs) {
+  const role = msgs[0].role;
+  const combined = msgs.map((m) => m.content).join(' ');
+  // Take up to the first sentence boundary, capped at 120 chars
+  const sentenceEnd = combined.search(/[.!?](\s|$)/);
+  const snippet = sentenceEnd > 0
+    ? combined.slice(0, sentenceEnd + 1)
+    : combined.slice(0, 120);
+  const suffix = msgs.length > 1 ? ` [+${msgs.length - 1} compressed]` : ' [compressed]';
+  return `${role}: ${snippet}${suffix}`;
+}
+
+// Build the compressed conversation string under 1600 chars.
+// Rules:
+//   1. First 3 and last 3 messages are always included in full.
+//   2. Middle messages containing a signal phrase are included in full.
+//   3. Remaining middle messages are grouped by consecutive role and
+//      each group is compressed to one sentence.
+//   4. Hard cap at 1600 chars.
 function compressConversation(conversation) {
-  const MAX_MSG_CHARS = 300;
-  const CHAR_BUDGET = 6000;
+  const CHAR_BUDGET = 1600;
 
-  let head, tail, omittedCount;
-  if (conversation.length <= 12) {
-    head = conversation;
-    tail = [];
-    omittedCount = 0;
-  } else {
-    head = conversation.slice(0, 2);
-    tail = conversation.slice(-10);
-    omittedCount = conversation.length - 12;
+  // Short conversations — include everything
+  if (conversation.length <= 6) {
+    const lines = conversation.map((m) => `${m.role}: ${m.content}`);
+    const text = lines.join('\n\n---\n\n');
+    return text.length > CHAR_BUDGET ? text.slice(0, CHAR_BUDGET) + '\n[Truncated]' : text;
   }
 
-  const truncate = (msg) => ({
-    ...msg,
-    content: msg.content.length > MAX_MSG_CHARS
-      ? msg.content.slice(0, MAX_MSG_CHARS) + '…'
-      : msg.content,
-  });
+  const head = conversation.slice(0, 3);
+  const tail = conversation.slice(-3);
+  const middle = conversation.slice(3, -3);
 
-  const fmt = (msg) => `${msg.role}: ${msg.content}`;
+  const hasSignal = (msg) =>
+    SIGNAL_PHRASES.some((p) => msg.content.toLowerCase().includes(p));
 
-  const parts = [];
-  head.forEach((msg) => parts.push(fmt(truncate(msg))));
-  if (omittedCount > 0) {
-    parts.push(`[${omittedCount} turn(s) omitted]`);
+  // Walk middle messages: flush non-signal groups when a signal message appears
+  const middleLines = [];
+  let group = [];
+
+  const flushGroup = () => {
+    if (group.length > 0) {
+      middleLines.push(compressGroup(group));
+      group = [];
+    }
+  };
+
+  for (const msg of middle) {
+    if (hasSignal(msg)) {
+      flushGroup();
+      middleLines.push(`${msg.role}: ${msg.content}`);
+    } else {
+      // Start a new group when role changes
+      if (group.length > 0 && group[group.length - 1].role !== msg.role) {
+        flushGroup();
+      }
+      group.push(msg);
+    }
   }
-  tail.forEach((msg) => parts.push(fmt(truncate(msg))));
+  flushGroup();
 
-  const text = parts.join('\n\n---\n\n');
-  return text.length > CHAR_BUDGET ? text.slice(0, CHAR_BUDGET) + '\n\n[Truncated]' : text;
+  const lines = [
+    ...head.map((m) => `${m.role}: ${m.content}`),
+    ...middleLines,
+    ...tail.map((m) => `${m.role}: ${m.content}`),
+  ];
+
+  const text = lines.join('\n\n---\n\n');
+  return text.length > CHAR_BUDGET ? text.slice(0, CHAR_BUDGET) + '\n[Truncated]' : text;
 }
 
 async function handleGeneratePrompt(conversation) {
