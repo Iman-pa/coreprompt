@@ -66,6 +66,9 @@ const SIGNAL_PHRASES = [
   "my recommendation", "in short",
 ];
 
+// Bug 4: user messages with these phrases reveal a shift in thinking — keep in full
+const USER_SIGNAL_PHRASES = ['but ', 'actually', 'i think', 'the thing is'];
+
 // Compress a group of consecutive messages into one sentence.
 // Groups consecutive messages by role; takes the first sentence of
 // the first message as a representative summary.
@@ -102,8 +105,10 @@ function compressConversation(conversation) {
   const tail = conversation.slice(-3);
   const middle = conversation.slice(3, -3);
 
+  // Bug 4: also preserve user messages that signal a pivot or opinion
   const hasSignal = (msg) =>
-    SIGNAL_PHRASES.some((p) => msg.content.toLowerCase().includes(p));
+    SIGNAL_PHRASES.some((p) => msg.content.toLowerCase().includes(p)) ||
+    (msg.role === 'User' && USER_SIGNAL_PHRASES.some((p) => msg.content.toLowerCase().includes(p)));
 
   // Walk middle messages: flush non-signal groups when a signal message appears
   const middleLines = [];
@@ -130,14 +135,22 @@ function compressConversation(conversation) {
   }
   flushGroup();
 
-  const lines = [
+  const SEP = '\n\n---\n\n';
+
+  // Bug 1: build tail separately and always append in full.
+  // Only head + middle are eligible for truncation.
+  const tailText = tail.map((m) => `${m.role}: ${m.content}`).join(SEP);
+  const headMiddleText = [
     ...head.map((m) => `${m.role}: ${m.content}`),
     ...middleLines,
-    ...tail.map((m) => `${m.role}: ${m.content}`),
-  ];
+  ].join(SEP);
 
-  const text = lines.join('\n\n---\n\n');
-  return text.length > CHAR_BUDGET ? text.slice(0, CHAR_BUDGET) + '\n[Truncated]' : text;
+  const headMiddleBudget = CHAR_BUDGET - tailText.length - SEP.length;
+  const trimmedHeadMiddle = headMiddleText.length > headMiddleBudget
+    ? headMiddleText.slice(0, headMiddleBudget) + '\n[Truncated]'
+    : headMiddleText;
+
+  return trimmedHeadMiddle + SEP + tailText;
 }
 
 async function handleGeneratePrompt(conversation) {
@@ -148,20 +161,35 @@ async function handleGeneratePrompt(conversation) {
 
   const conversationText = compressConversation(conversation);
 
+  const lastMsg = conversation[conversation.length - 1];
+  const lastSnippet = lastMsg.content.slice(0, 200) + (lastMsg.content.length > 200 ? '…' : '');
+
+  // Bug 2: tell Gemini exactly what the last message was so the Behavioral
+  // Directive references it specifically rather than using a generic phrase.
+  let promptSuffix = `\n\nThe last message in this conversation was from ${lastMsg.role}: "${lastSnippet}". The Behavioral Directive MUST reference this message specifically and tell the new AI instance how to respond to it.`;
+
+  // Bug 3: if the last message is a complete Assistant response with no
+  // trailing question, there are no open questions — omit that section.
+  const lastIsCompleteResponse =
+    lastMsg.role === 'Assistant' && !/\?\s*$/.test(lastMsg.content.trim());
+  if (lastIsCompleteResponse) {
+    promptSuffix += '\n\nThe last message is a complete response with no unanswered question. OMIT the "Open Questions & Next Steps" section entirely.';
+  }
+
   const requestBody = {
     contents: [
       {
         role: 'user',
         parts: [
           {
-            text: `${SYSTEM_PROMPT}\n\n<conversation>\n${conversationText}\n</conversation>`,
+            text: `${SYSTEM_PROMPT}${promptSuffix}\n\n<conversation>\n${conversationText}\n</conversation>`,
           },
         ],
       },
     ],
     generationConfig: {
       temperature: 0.4,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 2000,
     },
   };
 
