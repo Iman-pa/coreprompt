@@ -22,7 +22,7 @@ The system prompt must contain exactly these seven sections:
 4. **Key Decisions & Conclusions** — What was decided, chosen, or resolved, and the reasoning behind each decision.
 5. **Established Facts & Constraints** — All important information, rules, requirements, or constraints that were set and must be respected.
 6. **Open Questions & Next Steps** — Every unresolved issue, pending decision, and the logical next things to tackle, in priority order.
-7. **Behavioral Directive** — A direct instruction to the new AI instance: its exact role in this conversation, what it should and should not do, and how to pick up exactly where this conversation left off. To write this section, look only at the final assistant message and the final user message. If the final assistant message is a complete response with no trailing questions, state that the conversation ended naturally and the next step is to continue from the user's last question. Never say the assistant was mid-explanation unless the final assistant message is visibly incomplete (e.g. ends with a colon, a dash, or mid-sentence).
+7. **Behavioral Directive** — A direct instruction to the new AI instance: its exact role in this conversation, what it should and should not do, and how to pick up exactly where this conversation left off. CRITICAL RULE for this section: Copy the last user message word for word into the directive as the starting point. Then copy the first sentence of the last assistant message word for word. Use only these two to write the directive. If the last assistant message appears complete and ends with a question back to the user, say the next step is to await the user's response to that question. NEVER invent or assume a cutoff point. NEVER say the assistant was mid-explanation unless the last assistant message literally ends mid-sentence.
 
 Start the output with: "You are continuing a conversation with a user. Here is the full context:"`;
 
@@ -190,6 +190,7 @@ async function handleGeneratePrompt(conversation) {
     generationConfig: {
       temperature: 0.4,
       maxOutputTokens: 2000,
+      thinkingConfig: { thinkingBudget: 0 },  // disable thinking — it eats output tokens and adds latency
     },
   };
 
