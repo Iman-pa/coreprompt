@@ -17,11 +17,13 @@ Coreprompt solves this by extracting your conversation and using Gemini to disti
 1. Open any supported AI platform with an active conversation
 2. Click the floating **Coreprompt** button (bottom-right of the page)
 3. Gemini analyzes the conversation and generates a structured prompt covering:
+   - **User profile** — your role, domain, and goals as inferred from the conversation
+   - **Tone & style** — how you communicate and what response style you expect
    - **Main topic & context**
    - **Key decisions & conclusions**
-   - **Your thinking style & preferences**
    - **Established facts & constraints**
-   - **Open questions & next steps**
+   - **Open questions & next steps** *(omitted if the conversation ended with a complete response)*
+   - **Behavioral directive** — tells the new AI exactly how to pick up where things left off
 4. Copy the generated prompt and paste it into any new chat
 
 ---
@@ -65,7 +67,7 @@ You're ready to go.
 
 - **Vanilla JavaScript** — no frameworks, no build step
 - **Chrome Extensions Manifest V3** — service worker, content scripts, sync storage
-- **Google Gemini API** — `gemini-2.0-flash` model for conversation analysis
+- **Google Gemini API** — `gemini-2.5-flash` model (thinking disabled for speed)
 - **Vanilla CSS3** — dark theme, flexbox, animations
 
 ---
