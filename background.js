@@ -22,7 +22,7 @@ The system prompt must contain exactly these seven sections:
 4. **Key Decisions & Conclusions** — What was decided, chosen, or resolved, and the reasoning behind each decision.
 5. **Established Facts & Constraints** — All important information, rules, requirements, or constraints that were set and must be respected.
 6. **Open Questions & Next Steps** — Every unresolved issue, pending decision, and the logical next things to tackle, in priority order.
-7. **Behavioral Directive** — A direct instruction to the new AI instance: its exact role in this conversation, what it should and should not do, and how to pick up exactly where this conversation left off. CRITICAL RULE for this section: Copy the last user message word for word into the directive as the starting point. Then copy the first sentence of the last assistant message word for word. Use only these two to write the directive. If the last assistant message appears complete and ends with a question back to the user, say the next step is to await the user's response to that question. NEVER invent or assume a cutoff point. NEVER say the assistant was mid-explanation unless the last assistant message literally ends mid-sentence.
+7. **Behavioral Directive** — Write this section using ONLY the two fields provided below the conversation: LAST_USER_MESSAGE and LAST_ASSISTANT_MESSAGE. Do not use any other part of the conversation. Quote LAST_USER_MESSAGE verbatim as the user's last input. Quote the first sentence of LAST_ASSISTANT_MESSAGE verbatim as the assistant's last output. Based solely on these two: describe the state of the conversation, what the user asked, and what the next step is. If LAST_ASSISTANT_MESSAGE ends with a question, state the next step is to await the user's answer. NEVER say the assistant was mid-explanation unless LAST_ASSISTANT_MESSAGE literally ends mid-sentence (no period, no question mark, no exclamation mark). NEVER reference any other message when writing this section.
 
 Start the output with: "You are continuing a conversation with a user. Here is the full context:"`;
 
@@ -161,20 +161,23 @@ async function handleGeneratePrompt(conversation) {
 
   const conversationText = compressConversation(conversation);
 
-  const lastMsg = conversation[conversation.length - 1];
-  const lastSnippet = lastMsg.content.slice(0, 200) + (lastMsg.content.length > 200 ? '…' : '');
+  // Find the last user and last assistant messages to inject as grounding fields.
+  // These are used exclusively by the Behavioral Directive section.
+  const lastUserMsg = [...conversation].reverse().find((m) => m.role === 'User');
+  const lastAssistantMsg = [...conversation].reverse().find((m) => m.role === 'Assistant');
 
-  // Bug 2: tell Gemini exactly what the last message was so the Behavioral
-  // Directive references it specifically rather than using a generic phrase.
-  let promptSuffix = `\n\nThe last message in this conversation was from ${lastMsg.role}: "${lastSnippet}". The Behavioral Directive MUST reference this message specifically and tell the new AI instance how to respond to it.`;
+  const anchorFields = [
+    `LAST_USER_MESSAGE:\n${lastUserMsg ? lastUserMsg.content : '(none)'}`,
+    `LAST_ASSISTANT_MESSAGE:\n${lastAssistantMsg ? lastAssistantMsg.content : '(none)'}`,
+  ].join('\n\n');
 
-  // Bug 3: if the last message is a complete Assistant response with no
-  // trailing question, there are no open questions — omit that section.
+  // Omit Open Questions section if the last assistant message is a complete
+  // response with no trailing question.
   const lastIsCompleteResponse =
-    lastMsg.role === 'Assistant' && !/\?\s*$/.test(lastMsg.content.trim());
-  if (lastIsCompleteResponse) {
-    promptSuffix += '\n\nThe last message is a complete response with no unanswered question. OMIT the "Open Questions & Next Steps" section entirely.';
-  }
+    lastAssistantMsg && !/\?\s*$/.test(lastAssistantMsg.content.trim());
+  const omitNote = lastIsCompleteResponse
+    ? '\n\nNOTE: LAST_ASSISTANT_MESSAGE is a complete response with no trailing question. OMIT the "Open Questions & Next Steps" section entirely.'
+    : '';
 
   const requestBody = {
     contents: [
@@ -182,7 +185,7 @@ async function handleGeneratePrompt(conversation) {
         role: 'user',
         parts: [
           {
-            text: `${SYSTEM_PROMPT}${promptSuffix}\n\n<conversation>\n${conversationText}\n</conversation>`,
+            text: `${SYSTEM_PROMPT}${omitNote}\n\n<conversation>\n${conversationText}\n</conversation>\n\n${anchorFields}`,
           },
         ],
       },
